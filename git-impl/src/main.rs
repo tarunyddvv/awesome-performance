@@ -1,6 +1,6 @@
 use std::{
     ffi::CStr,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Error, Read},
 };
 
 use anyhow::Context;
@@ -75,7 +75,13 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("not a valid header type");
             };
 
-            let mut z = z.take(size as u64);
+            // NOTE: this would not throw an error
+            // let mut z = z.take(size as u64);
+
+            let mut z = LimitReader {
+                reader: z,
+                limit: size,
+            };
 
             match kind {
                 Kind::Blob => {
@@ -95,4 +101,29 @@ fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+struct LimitReader<R> {
+    reader: R,
+    limit: usize,
+}
+
+impl<R> std::io::Read for LimitReader<R>
+where
+    R: Read,
+{
+    fn read(&mut self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.len() > self.limit {
+            buf = &mut buf[..self.limit + 1];
+        }
+        let n = self.reader.read(buf)?;
+        if n > self.limit {
+            return Err(Error::new(
+                std::io::ErrorKind::Other,
+                "content has '{n}' trailing bytes",
+            ));
+        }
+
+        Ok(n)
+    }
 }
