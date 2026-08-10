@@ -1,6 +1,6 @@
 use std::{
     ffi::CStr,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read},
 };
 
 use anyhow::Context;
@@ -75,22 +75,18 @@ fn main() -> anyhow::Result<()> {
                 anyhow::bail!("not a valid header type");
             };
 
-            buf.clear();
-            buf.resize(size, 0);
-            z.read_exact(&mut buf)
-                .context("reading the actual content of the file")?;
-            let n = z
-                .read(&mut [0; 1])
-                .context("validating EOF inside the content")?;
-
-            anyhow::ensure!(n == 0, "content bytes has '{n}' trailing bytes");
+            let mut z = z.take(size as u64);
 
             match kind {
                 Kind::Blob => {
                     let mut stdout = std::io::stdout().lock();
-                    stdout
-                        .write_all(&buf)
-                        .context("writing the content of the file to stdout")?;
+                    let n = std::io::copy(&mut z, &mut stdout)
+                        .context("writing the content of file from reader to stdout")?;
+
+                    anyhow::ensure!(
+                        n == size as u64,
+                        "invalid file size (actual: {n}, expected: {size})"
+                    );
                 }
                 _ => anyhow::bail!("we do not yet know how to print: {:#?}", kind),
             }
