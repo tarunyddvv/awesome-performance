@@ -1,11 +1,14 @@
 use std::{
     ffi::CStr,
+    io::Write,
     io::{BufRead, BufReader, Error, Read},
+    path::PathBuf,
 };
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use flate2::read::ZlibDecoder;
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
+use sha1::{Digest, Sha1};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -22,6 +25,12 @@ enum Commands {
 
         object_hash: String,
     },
+    HashObject {
+        #[clap(short = 'w')]
+        write: bool,
+
+        file: PathBuf,
+    },
 }
 
 #[derive(Debug)]
@@ -34,7 +43,7 @@ enum Kind {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
+    match cli.command {
         Some(Commands::CatFile {
             pretty_print,
             object_hash,
@@ -97,6 +106,45 @@ fn main() -> anyhow::Result<()> {
                 _ => anyhow::bail!("we do not yet know how to print: {:#?}", kind),
             }
         }
+        Some(Commands::HashObject { write, file }) => {
+            fn write_blob(writer: impl Write, file: PathBuf) -> anyhow::Result<String> {
+                let stat = std::fs::metadata(&file)
+                    .with_context(|| format!("file metadata: {}", file.display()))?;
+
+                let e = ZlibEncoder::new(writer, Compression::default());
+
+                let mut writer = HashWriter {
+                    hasher: Sha1::new(),
+                    writer: e,
+                };
+                let content = std::fs::read(&file).context("reading the contents of the file")?;
+                write!(writer, "blob ")?;
+                write!(writer, "{}\0", stat.len())?;
+                writer.write_all(&content)?;
+
+                writer.writer.finish()?;
+                let hash = writer.hasher.finalize();
+
+                Ok(hex::encode(hash))
+            }
+
+            let hash = if write {
+                let temp = "temporary";
+                let hash = write_blob(std::fs::File::create(temp)?, file)?;
+
+                std::fs::create_dir(format!("../.git/objects/{}", &hash[..2]))?;
+                std::fs::copy(
+                    temp,
+                    format!("../.git/objects/{}/{}", &hash[..2], &hash[2..]),
+                )?;
+
+                hash
+            } else {
+                write_blob(std::io::sink(), file)?
+            };
+
+            println!("{hash}");
+        }
         None => {}
     }
 
@@ -124,6 +172,28 @@ where
             ));
         }
 
+        self.limit -= n;
         Ok(n)
+    }
+}
+
+struct HashWriter<W> {
+    hasher: Sha1,
+    writer: W,
+}
+
+impl<W> Write for HashWriter<W>
+where
+    W: Write,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.writer.write(buf)?;
+        self.hasher.update(&buf[..n]);
+
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
     }
 }
