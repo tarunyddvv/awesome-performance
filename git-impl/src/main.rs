@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+pub mod commands;
+pub mod objects;
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
@@ -22,6 +25,12 @@ enum Commands {
 
         file: PathBuf,
     },
+    LsTree {
+        #[clap(long)]
+        name_only: bool,
+
+        tree_hash: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -31,8 +40,12 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::CatFile {
             pretty_print,
             object_hash,
-        }) => git_impl::cat_file::invoke(pretty_print, object_hash)?,
-        Some(Commands::HashObject { write, file }) => git_impl::hash_object::invoke(write, file)?,
+        }) => commands::cat_file::invoke(pretty_print, object_hash)?,
+        Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, file)?,
+        Some(Commands::LsTree {
+            name_only,
+            tree_hash,
+        }) => commands::ls_tree::invoke(name_only, tree_hash)?,
         None => {}
     }
 
