@@ -2,7 +2,7 @@ use anyhow::Context;
 use flate2::read::ZlibDecoder;
 use std::{
     ffi::CStr,
-    io::{BufRead, BufReader, Error, Read},
+    io::{BufRead, BufReader, Read},
 };
 
 #[derive(Debug)]
@@ -29,7 +29,7 @@ pub struct Object<R> {
 }
 
 impl Object<()> {
-    pub fn read(object_hash: String) -> anyhow::Result<Object<LimitReader<impl BufRead>>> {
+    pub fn read(object_hash: &String) -> anyhow::Result<Object<impl BufRead>> {
         let f = std::fs::File::open(format!(
             "../.git/objects/{}/{}",
             &object_hash[..2],
@@ -68,10 +68,7 @@ impl Object<()> {
         // NOTE: this would not throw an error
         // let mut z = z.take(size as u64);
 
-        let z = LimitReader {
-            reader: z,
-            limit: size,
-        };
+        let z = z.take(size as u64);
 
         Ok(Object {
             kind,
@@ -80,6 +77,7 @@ impl Object<()> {
         })
     }
 }
+/*
 
 pub struct LimitReader<R> {
     reader: R,
@@ -106,3 +104,5 @@ where
         Ok(n)
     }
 }
+
+*/

@@ -1,23 +1,65 @@
+use std::{
+    ffi::CStr,
+    io::{BufRead, Read, Write},
+};
+
 use crate::objects::{Kind, Object};
 use anyhow::Context;
 
 pub fn invoke(name_only: bool, tree_hash: String) -> anyhow::Result<()> {
-    anyhow::ensure!(name_only, "-name-only subcommand is mandatory");
-
-    let mut object =
-        Object::read(tree_hash).context("reading the object header to parse header and content")?;
+    let mut object = Object::read(&tree_hash)
+        .context("reading the object header to parse header and content")?;
 
     match object.kind {
         Kind::Tree => {
+            let mut buf = Vec::new();
+            let mut hashbuf = [0; 20];
             let mut stdout = std::io::stdout().lock();
-            let n = std::io::copy(&mut object.reader, &mut stdout)
-                .context("writing the content of file from reader to stdout")?;
+            loop {
+                buf.clear();
+                let n = object
+                    .reader
+                    .read_until(0, &mut buf)
+                    .context("read next tree object entry")?;
+                if n == 0 {
+                    break;
+                }
+                object
+                    .reader
+                    .read_exact(&mut hashbuf)
+                    .context("read tree entry object hash")?;
 
-            anyhow::ensure!(
-                n == object.expected_size,
-                "invalid file size (actual: {n}, expected: {})",
-                object.expected_size
-            );
+                let hash = hex::encode(hashbuf);
+
+                let mode_and_name =
+                    CStr::from_bytes_with_nul(&buf).context("invalid tree entry")?;
+                let mut bits = mode_and_name.to_bytes().splitn(2, |&b| b == b' ');
+                let mode = bits.next().expect("split always yields once");
+                let name = bits
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("tree entry has no file name"))?;
+
+                let kind = Object::read(&hash)
+                    .context("getting the kind of hash object")?
+                    .kind;
+
+                if name_only {
+                    stdout
+                        .write_all(name)
+                        .context("write tree entry name to stdout")?;
+                    writeln!(stdout, "").context("write newline to stdout")?;
+                } else {
+                    let mode = std::str::from_utf8(mode).context("mode is always valid UTF-8")?;
+                    write!(stdout, "{mode:0>6} {kind} {hash} ")
+                        .context("write tree entry hash to stdout")?;
+                    stdout
+                        .write_all(name)
+                        .context("write tree entry name to stdout")?;
+                    writeln!(stdout, "")?;
+                }
+
+                buf.clear();
+            }
         }
         _ => anyhow::bail!("we do not yet know how to print: {}", object.kind),
     }

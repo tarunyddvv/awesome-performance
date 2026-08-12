@@ -4,7 +4,7 @@ use anyhow::Context;
 pub fn invoke(pretty_print: bool, object_hash: String) -> anyhow::Result<()> {
     anyhow::ensure!(pretty_print, "-p subcommand is mandatory");
 
-    let mut object = Object::read(object_hash)
+    let mut object = Object::read(&object_hash)
         .context("reading the object header to parse header and content")?;
     match object.kind {
         Kind::Blob => {
