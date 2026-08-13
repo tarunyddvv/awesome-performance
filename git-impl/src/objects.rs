@@ -4,7 +4,7 @@ use sha1::{Digest, Sha1};
 use std::{
     ffi::CStr,
     io::{BufRead, BufReader, Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug)]
@@ -31,6 +31,20 @@ pub struct Object<R> {
 }
 
 impl Object<()> {
+    pub fn git_dir() -> anyhow::Result<PathBuf> {
+        let mut directory = std::env::current_dir().context("get current directory")?;
+        loop {
+            let git_dir = directory.join(".git");
+            if git_dir.join("HEAD").is_file() {
+                return Ok(git_dir);
+            }
+            if !directory.pop() {
+                break;
+            }
+        }
+        anyhow::bail!("locate .git directory")
+    }
+
     pub fn blob_from_file(file: impl AsRef<Path>) -> anyhow::Result<Object<impl Read>> {
         let file = file.as_ref();
         let stat = std::fs::metadata(&file)
@@ -46,12 +60,15 @@ impl Object<()> {
     }
 
     pub fn read(object_hash: &String) -> anyhow::Result<Object<impl BufRead>> {
-        let f = std::fs::File::open(format!(
-            "../.git/objects/{}/{}",
-            &object_hash[..2],
-            &object_hash[2..]
-        ))
-        .context("open in .git/objects")?;
+        anyhow::ensure!(
+            object_hash.len() == 40,
+            "object hash must be 40 hex characters"
+        );
+        let object_path = Self::git_dir()?
+            .join("objects")
+            .join(&object_hash[..2])
+            .join(&object_hash[2..]);
+        let f = std::fs::File::open(object_path).context("open in .git/objects")?;
 
         let z = ZlibDecoder::new(f);
         let mut z = BufReader::new(z);
@@ -99,15 +116,23 @@ where
     R: Read,
 {
     pub fn write_to_objects(self) -> anyhow::Result<[u8; 20]> {
-        let tmp = "temporary";
+        // write the scratch file inside the objects dir (like git's objects/tmp_*)
+        // so it never shows up in a directory being scanned by write-tree
+        let objects_dir = Object::git_dir()?.join("objects");
+        std::fs::create_dir_all(&objects_dir).context("create .git/objects")?;
+        let tmp = objects_dir.join(format!("temporary-{}", std::process::id()));
         let hash = self
-            .write(std::fs::File::create(tmp).context("construct temporary file for tree")?)
-            .context("stream tree object into tree object file")?;
+            .write(std::fs::File::create(&tmp).context("construct temporary file for object")?)
+            .context("stream object into temporary object file")?;
         let hash_hex = hex::encode(hash);
-        std::fs::create_dir_all(format!(".git/objects/{}/", &hash_hex[..2]))
-            .context("create subdir of .git/objects")?;
-        std::fs::rename(tmp, format!(".git/objects/{}/", &hash_hex[..2]))
-            .context("move tree file into .git/objects")?;
+        let object_dir = objects_dir.join(&hash_hex[..2]);
+        let object_path = object_dir.join(&hash_hex[2..]);
+        std::fs::create_dir_all(&object_dir).context("create object subdirectory")?;
+        if object_path.exists() {
+            std::fs::remove_file(&tmp).context("remove duplicate temporary object")?;
+        } else {
+            std::fs::rename(&tmp, object_path).context("move object into .git/objects")?;
+        }
 
         Ok(hash)
     }

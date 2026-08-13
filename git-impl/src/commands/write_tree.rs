@@ -1,127 +1,115 @@
-use crate::objects::Object;
-use anyhow::Context;
-use sha1::{Digest, Sha1};
-use std::{
-    fs,
-    io::{Cursor, Write},
-    os::unix::fs::PermissionsExt,
-    path::Path,
-};
+use crate::objects::{Kind, Object};
+use anyhow::{Context, bail, ensure};
+use std::{collections::BTreeMap, fs, io::Cursor};
 
-fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
-    let mut dir =
-        fs::read_dir(path).with_context(|| format!("open directory {}", path.display()))?;
+struct IndexEntry {
+    path: Vec<u8>,
+    mode: u32,
+    hash: [u8; 20],
+}
 
-    let mut tree_object = Vec::new();
-    while let Some(entry) = dir.next() {
-        let entry = entry.with_context(|| format!("bad directory entry in {}", path.display()))?;
-        let file_name = entry.file_name();
-        let meta = entry.metadata().context("metadata for directory entry")?;
-        let mode = if meta.is_dir() {
-            "40000"
-        } else if meta.is_symlink() {
-            "120000"
-        } else if (meta.permissions().mode() & 0o111) != 0 {
-            "100755"
-        } else {
-            "100644"
-        };
-        let path = entry.path();
-        let hash = if meta.is_dir() {
-            let Some(hash) = write_tree_for(&entry.path())? else {
-                continue;
-            };
-            hash
-        } else {
-            let hash = Object::blob_from_file(&path)
-                .context("open blob input file")?
-                .write_to_objects()
-                .context("stream file into blob")?;
+fn read_u32(bytes: &[u8]) -> anyhow::Result<u32> {
+    let value = bytes.get(..4).context("truncated index")?;
+    Ok(u32::from_be_bytes(value.try_into().unwrap()))
+}
 
-            hash
-        };
+fn read_index() -> anyhow::Result<Vec<IndexEntry>> {
+    let index = Object::git_dir()?.join("index");
+    let bytes = fs::read(&index).with_context(|| format!("read {}", index.display()))?;
+    ensure!(bytes.len() >= 12, "git index is truncated");
+    ensure!(&bytes[..4] == b"DIRC", "invalid git index signature");
+    ensure!(read_u32(&bytes[4..])? == 2, "unsupported git index version");
 
-        tree_object.extend(mode.as_bytes());
-        tree_object.push(b' ');
-        tree_object.extend(file_name.as_encoded_bytes());
-        tree_object.push(0);
-        tree_object.extend(hash);
+    let count = read_u32(&bytes[8..])? as usize;
+    let mut offset = 12;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        ensure!(offset + 62 <= bytes.len(), "truncated git index entry");
+        let mode = read_u32(&bytes[offset + 24..])?;
+        let mut hash = [0; 20];
+        hash.copy_from_slice(&bytes[offset + 40..offset + 60]);
+        let flags = u16::from_be_bytes(bytes[offset + 60..offset + 62].try_into().unwrap());
+        ensure!(
+            flags & 0x3000 == 0,
+            "cannot write an index with unmerged entries"
+        );
+
+        let name_start = offset + 62;
+        let name_end = bytes[name_start..]
+            .iter()
+            .position(|&byte| byte == 0)
+            .map(|length| name_start + length)
+            .context("unterminated git index path")?;
+        let path = bytes[name_start..name_end].to_vec();
+        let entry_size = (name_end + 1 - offset + 7) & !7;
+        offset += entry_size;
+        entries.push(IndexEntry { path, mode, hash });
     }
+    Ok(entries)
+}
 
-    if tree_object.is_empty() {
-        Ok(None)
-    } else {
-        let hash = Object {
-            kind: crate::objects::Kind::Tree,
-            expected_size: tree_object.len() as u64,
-            reader: Cursor::new(tree_object),
+fn write_tree(entries: &[&IndexEntry], prefix: &[u8]) -> anyhow::Result<[u8; 20]> {
+    let mut files = Vec::new();
+    let mut directories: BTreeMap<Vec<u8>, Vec<&IndexEntry>> = BTreeMap::new();
+
+    for entry in entries {
+        let path = entry
+            .path
+            .strip_prefix(prefix)
+            .context("index path is outside tree prefix")?;
+        if let Some(separator) = path.iter().position(|&byte| byte == b'/') {
+            let name = path[..separator].to_vec();
+            let child_prefix = [prefix, &name, b"/"].concat();
+            directories.entry(child_prefix).or_default().push(entry);
+        } else {
+            files.push((path.to_vec(), entry));
         }
-        .write_to_objects()
-        .context("stream tree object into tree object file")?;
-
-        Ok(Some(hash))
     }
+
+    let mut tree_entries: Vec<(Vec<u8>, u32, [u8; 20])> = files
+        .into_iter()
+        .map(|(name, entry)| (name, entry.mode, entry.hash))
+        .collect();
+    for (child_prefix, child_entries) in directories {
+        let name = child_prefix[prefix.len()..child_prefix.len() - 1].to_vec();
+        tree_entries.push((name, 0o040000, write_tree(&child_entries, &child_prefix)?));
+    }
+
+    tree_entries.sort_by(|(a_name, a_mode, _), (b_name, b_mode, _)| {
+        let mut a_key = a_name.clone();
+        if a_mode == &0o040000 {
+            a_key.push(b'/');
+        }
+        let mut b_key = b_name.clone();
+        if b_mode == &0o040000 {
+            b_key.push(b'/');
+        }
+        a_key.cmp(&b_key)
+    });
+
+    let mut content = Vec::new();
+    for (name, mode, hash) in tree_entries {
+        content.extend(format!("{:o} ", mode).as_bytes());
+        content.extend(name);
+        content.push(0);
+        content.extend(hash);
+    }
+
+    Object {
+        kind: Kind::Tree,
+        expected_size: content.len() as u64,
+        reader: Cursor::new(content),
+    }
+    .write_to_objects()
+    .context("write tree object")
 }
 
 pub fn invoke() -> anyhow::Result<()> {
-    // fn write_blob(writer: impl Write, file: PathBuf) -> anyhow::Result<String> {
-    //     let stat = std::fs::metadata(&file)
-    //         .with_context(|| format!("file metadata: {}", file.display()))?;
-
-    //     let e = ZlibEncoder::new(writer, Compression::default());
-
-    //     let mut writer = HashWriter {
-    //         hasher: Sha1::new(),
-    //         writer: e,
-    //     };
-    //     let content = std::fs::read(&file).context("reading the contents of the file")?;
-    //     write!(writer, "blob ")?;
-    //     write!(writer, "{}\0", stat.len())?;
-    //     writer.write_all(&content)?;
-
-    //     writer.writer.finish()?;
-    //     let hash = writer.hasher.finalize();
-
-    //     Ok(hex::encode(hash))
-    // }
-
-    // let hash = if write {
-    //     let temp = "temporary";
-    //     let hash = write_blob(std::fs::File::create(temp)?, file)?;
-
-    //     std::fs::create_dir_all(format!("../.git/objects/{}/", &hash[..2]))?;
-    //     std::fs::rename(
-    //         temp,
-    //         format!("../.git/objects/{}/{}", &hash[..2], &hash[2..]),
-    //     )?;
-
-    //     hash
-    // } else {
-    //     write_blob(std::io::sink(), file)?
-    // };
-
-    // println!("{hash}");
-
+    let entries = read_index()?;
+    if entries.is_empty() {
+        bail!("asked to make tree object for empty index");
+    }
+    let entries: Vec<_> = entries.iter().collect();
+    println!("{}", hex::encode(write_tree(&entries, &[])?));
     Ok(())
-}
-
-struct HashWriter<W> {
-    hasher: Sha1,
-    writer: W,
-}
-
-impl<W> Write for HashWriter<W>
-where
-    W: Write,
-{
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let n = self.writer.write(buf)?;
-        self.hasher.update(&buf[..n]);
-
-        Ok(n)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.writer.flush()
-    }
 }
