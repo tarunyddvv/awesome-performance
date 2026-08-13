@@ -1,8 +1,10 @@
 use anyhow::Context;
-use flate2::read::ZlibDecoder;
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
+use sha1::{Digest, Sha1};
 use std::{
     ffi::CStr,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Write},
+    path::Path,
 };
 
 #[derive(Debug)]
@@ -29,6 +31,20 @@ pub struct Object<R> {
 }
 
 impl Object<()> {
+    pub fn blob_from_file(file: impl AsRef<Path>) -> anyhow::Result<Object<impl Read>> {
+        let file = file.as_ref();
+        let stat = std::fs::metadata(&file)
+            .with_context(|| format!("file metadata: {}", file.display()))?;
+        let file =
+            std::fs::File::open(&file).with_context(|| format!("open {}", file.display()))?;
+
+        Ok(Object {
+            kind: crate::objects::Kind::Blob,
+            expected_size: stat.len(),
+            reader: file,
+        })
+    }
+
     pub fn read(object_hash: &String) -> anyhow::Result<Object<impl BufRead>> {
         let f = std::fs::File::open(format!(
             "../.git/objects/{}/{}",
@@ -77,6 +93,50 @@ impl Object<()> {
         })
     }
 }
+
+impl<R> Object<R>
+where
+    R: Read,
+{
+    pub fn write(mut self, writer: impl Write) -> anyhow::Result<[u8; 20]> {
+        let e = ZlibEncoder::new(writer, Compression::default());
+
+        let mut writer = HashWriter {
+            hasher: Sha1::new(),
+            writer: e,
+        };
+
+        write!(writer, "{} {}\0", self.kind, self.expected_size)?;
+        std::io::copy(&mut self.reader, &mut writer).context("stream file into blob")?;
+
+        writer.writer.finish()?;
+        let hash = writer.hasher.finalize();
+
+        Ok(hash.into())
+    }
+}
+
+struct HashWriter<W> {
+    hasher: Sha1,
+    writer: W,
+}
+
+impl<W> Write for HashWriter<W>
+where
+    W: Write,
+{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.writer.write(buf)?;
+        self.hasher.update(&buf[..n]);
+
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 /*
 
 pub struct LimitReader<R> {
