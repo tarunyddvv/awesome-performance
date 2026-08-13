@@ -1,8 +1,12 @@
+use crate::objects::Object;
 use anyhow::Context;
 use sha1::{Digest, Sha1};
-use std::{fs, io::Write, os::unix::fs::PermissionsExt, path::Path};
-
-use crate::objects::Object;
+use std::{
+    fs,
+    io::{Cursor, Write},
+    os::unix::fs::PermissionsExt,
+    path::Path,
+};
 
 fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
     let mut dir =
@@ -29,18 +33,10 @@ fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
             };
             hash
         } else {
-            let tmp = "temporary";
             let hash = Object::blob_from_file(&path)
                 .context("open blob input file")?
-                .write(std::fs::File::create(tmp).context("construct temporary file for blob")?)
+                .write_to_objects()
                 .context("stream file into blob")?;
-            let hash_hex = hex::encode(hash);
-            std::fs::create_dir_all(format!(".git/objects/{}/", &hash_hex[..2]))
-                .context("create subdir of .git/objects")?;
-            std::fs::rename(
-                tmp,
-                format!(".git/objects/{}/{}", &hash_hex[..2], &hash_hex[2..]),
-            )?;
 
             hash
         };
@@ -51,7 +47,20 @@ fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
         tree_object.push(0);
         tree_object.extend(hash);
     }
-    Ok(None)
+
+    if tree_object.is_empty() {
+        Ok(None)
+    } else {
+        let hash = Object {
+            kind: crate::objects::Kind::Tree,
+            expected_size: tree_object.len() as u64,
+            reader: Cursor::new(tree_object),
+        }
+        .write_to_objects()
+        .context("stream tree object into tree object file")?;
+
+        Ok(Some(hash))
+    }
 }
 
 pub fn invoke() -> anyhow::Result<()> {

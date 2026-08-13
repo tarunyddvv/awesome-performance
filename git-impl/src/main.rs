@@ -42,7 +42,7 @@ fn main() -> anyhow::Result<()> {
             pretty_print,
             object_hash,
         }) => commands::cat_file::invoke(pretty_print, object_hash)?,
-        Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, file)?,
+        Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, &file)?,
         Some(Commands::LsTree {
             name_only,
             tree_hash,

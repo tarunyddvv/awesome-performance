@@ -98,6 +98,20 @@ impl<R> Object<R>
 where
     R: Read,
 {
+    pub fn write_to_objects(self) -> anyhow::Result<[u8; 20]> {
+        let tmp = "temporary";
+        let hash = self
+            .write(std::fs::File::create(tmp).context("construct temporary file for tree")?)
+            .context("stream tree object into tree object file")?;
+        let hash_hex = hex::encode(hash);
+        std::fs::create_dir_all(format!(".git/objects/{}/", &hash_hex[..2]))
+            .context("create subdir of .git/objects")?;
+        std::fs::rename(tmp, format!(".git/objects/{}/", &hash_hex[..2]))
+            .context("move tree file into .git/objects")?;
+
+        Ok(hash)
+    }
+
     pub fn write(mut self, writer: impl Write) -> anyhow::Result<[u8; 20]> {
         let e = ZlibEncoder::new(writer, Compression::default());
 
