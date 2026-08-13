@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
             name_only,
             tree_hash,
         }) => commands::ls_tree::invoke(name_only, tree_hash)?,
-        Some(Commands::WriteTree) => commands::write_tree::invoke(todo!(), todo!())?,
+        Some(Commands::WriteTree) => commands::write_tree::invoke()?,
         None => {}
     }
 
