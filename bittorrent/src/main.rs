@@ -21,8 +21,8 @@ fn main() {
 
     match cli.command {
         Some(Commands::Decode { encoded_value }) => {
-            let value = decode_bencoded_value(encoded_value);
-            println!("{value}")
+            let value = decode_bencoded_value(&encoded_value);
+            println!("{}", value.0)
         }
         None => {}
     }
