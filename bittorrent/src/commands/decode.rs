@@ -9,6 +9,18 @@ pub fn decode_bencoded_value(encoded_value: String) -> serde_json::Value {
                 panic!("not a valid bencoded string value");
             }
         }
+        // i42e
+        Some('i') => {
+            if let Some(value) = encoded_value
+                .strip_prefix('i')
+                .and_then(|rest| rest.split_once('e'))
+                .and_then(|(digit, _)| digit.parse::<i64>().ok())
+            {
+                value.into()
+            } else {
+                panic!("not a valid bencoded string value");
+            }
+        }
         _ => unreachable!(),
     }
 }
