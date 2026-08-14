@@ -1,10 +1,10 @@
 #![allow(unused)]
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::torrent::hashes::Pieces;
 
 /// Metainfo files (also known as .torrent files) are bencoded dictionaries with the following keys:
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Torrent {
     /// The URL of the tracker.
     pub announce: String,
@@ -13,16 +13,16 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub fn length(self) -> usize {
+    pub fn length(&self) -> usize {
         match self.info.keys {
             Keys::SingleFile { length } => length,
-            Keys::MultiFile { files } => files.iter().map(|f| f.length).sum(),
+            Keys::MultiFile { ref files } => files.iter().map(|f| f.length).sum(),
         }
     }
 }
 
 /// info dictionary
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Info {
     /// UTF-8 encoded string which is the suggested name to save the file (or directory) as.
     pub name: String,
@@ -45,7 +45,7 @@ pub struct Info {
     pub keys: Keys,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum Keys {
     /// If length is present then the download represents a single file,
@@ -54,7 +54,7 @@ pub enum Keys {
     MultiFile { files: Vec<File> },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct File {
     /// length - The length of the file, in bytes.
     pub length: usize,
@@ -65,11 +65,14 @@ pub struct File {
 }
 
 mod hashes {
+    use serde::Serialize;
+    use serde::ser::Serializer;
     use serde::{
         Deserialize, Deserializer,
         de::{self, Visitor},
     };
     use std::fmt;
+    use std::io::Error;
 
     #[derive(Debug)]
     pub struct Pieces(pub Vec<[u8; 20]>);
@@ -105,6 +108,17 @@ mod hashes {
             D: Deserializer<'de>,
         {
             deserializer.deserialize_bytes(PiecesVisitor)
+        }
+    }
+
+    impl Serialize for Pieces {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            let single_slice = self.0.concat();
+
+            serializer.serialize_bytes(&single_slice)
         }
     }
 }
