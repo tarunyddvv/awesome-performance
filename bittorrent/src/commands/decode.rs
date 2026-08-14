@@ -38,6 +38,24 @@ pub fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
 
             (values.into(), &rest[1..])
         }
+        Some('d') => {
+            let mut values = serde_json::Map::new();
+            let mut rest = encoded_value.strip_prefix('d').expect("strip d prefix");
+
+            while !rest.starts_with('e') {
+                let (k, remainder) = decode_bencoded_value(rest);
+                let (v, left) = decode_bencoded_value(remainder);
+
+                let k = match k {
+                    serde_json::Value::String(v) => v,
+                    k => panic!("we do not yet know how how to insert {k} key"),
+                };
+                values.insert(k, v);
+                rest = left;
+            }
+
+            (values.into(), &rest[1..])
+        }
         _ => unreachable!(),
     }
 }
