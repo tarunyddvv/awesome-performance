@@ -47,8 +47,8 @@ pub fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
                 let (v, left) = decode_bencoded_value(remainder);
 
                 let k = match k {
-                    serde_json::Value::String(v) => v,
-                    k => panic!("we do not yet know how how to insert {k} key"),
+                    serde_json::Value::String(k) => k,
+                    k => panic!("dict keys must be string not '{k:?}'"),
                 };
                 values.insert(k, v);
                 rest = left;
