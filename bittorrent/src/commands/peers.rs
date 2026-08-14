@@ -23,8 +23,6 @@ pub async fn invoke(torrent: impl AsRef<Path>) -> anyhow::Result<()> {
 
     let url = format!("{}?{}&info_hash={}", t.announce, trequest, urlencoded_info);
 
-    println!("{url}");
-
     let tracker_response = reqwest::get(url)
         .await
         .context("get request for the peers")?

@@ -20,6 +20,7 @@ enum Commands {
     Decode { encoded_value: String },
     Info { torrent: PathBuf },
     Peers { torrent: PathBuf },
+    Handshake { torrent: PathBuf, peer: String },
 }
 
 #[tokio::main]
@@ -33,6 +34,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Commands::Info { torrent }) => commands::info::invoke(torrent)?,
         Some(Commands::Peers { torrent }) => commands::peers::invoke(torrent).await?,
+        Some(Commands::Handshake { torrent, peer }) => {
+            commands::handshake::invoke(torrent, peer).await?
+        }
         None => {}
     }
 
