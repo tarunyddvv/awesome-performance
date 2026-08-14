@@ -19,5 +19,12 @@ pub fn invoke(torrent: impl AsRef<Path>) -> anyhow::Result<()> {
     let hash = hasher.finalize();
 
     println!("Info Hash: {}", hex::encode(hash));
+
+    println!("Piece Length: {}", t.info.plength);
+
+    println!("Piece Hashes:");
+    for phash in t.info.pieces.0 {
+        println!("{}", hex::encode(phash));
+    }
     Ok(())
 }
