@@ -1,5 +1,9 @@
 #![allow(unused)]
+use std::path::Path;
+
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use sha1::{Digest, Sha1};
 
 use crate::torrent::hashes::Pieces;
 
@@ -13,6 +17,23 @@ pub struct Torrent {
 }
 
 impl Torrent {
+    pub fn new(file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let f = std::fs::read(file).context("read the torrent file")?;
+        let t: Torrent = serde_bencode::from_bytes(&f).context("parse torrent file")?;
+
+        Ok(t)
+    }
+
+    pub fn info_hash(&self) -> anyhow::Result<[u8; 20]> {
+        let encoded_info = serde_bencode::to_bytes(&self.info).context("bencoding torrent info")?;
+
+        let mut hasher = Sha1::new();
+        hasher.update(encoded_info);
+        let hash = hasher.finalize();
+
+        Ok(hash.into())
+    }
+
     pub fn length(&self) -> usize {
         match self.info.keys {
             Keys::SingleFile { length } => length,
