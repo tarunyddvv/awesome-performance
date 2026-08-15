@@ -4,6 +4,7 @@ use crate::{
 use anyhow::Context;
 use bytes::{Buf, BufMut, BytesMut};
 use futures_util::{SinkExt, stream::StreamExt};
+use sha1::{Digest, Sha1};
 use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
@@ -199,26 +200,33 @@ pub async fn invoke(
         pindex < t.info.pieces.0.len(),
         "piece index is out of range"
     );
-    let piece_start = pindex
-        .checked_mul(t.info.plength)
-        .context("piece offset overflow")?;
-    let piece_length = t
-        .length()
-        .checked_sub(piece_start)
-        .context("piece starts beyond torrent length")?
-        .min(t.info.plength);
+
+    let piece_length = if pindex == t.info.pieces.0.len() - 1 {
+        let remainder = t.length() % t.info.plength;
+        if remainder == 0 {
+            t.info.plength
+        } else {
+            remainder
+        }
+    } else {
+        t.info.plength
+    };
     let nblocks = piece_length.div_ceil(BLOCK_MAX);
 
     let mut buf = Vec::with_capacity(piece_length);
     for block in 0..nblocks {
         let begin = (block * BLOCK_MAX) as u32;
-        let request_length = (piece_length - block * BLOCK_MAX).min(BLOCK_MAX) as u32;
+        let block_length = if block == nblocks - 1 {
+            piece_length - block * BLOCK_MAX
+        } else {
+            BLOCK_MAX
+        };
 
-        let mut request = Request::new(pindex as u32, begin, request_length);
+        let request = Request::new(pindex as u32, begin, block_length as u32);
 
         peer.send(Message {
             tag: MessageTag::Request,
-            payload: request.as_bytes_mut().to_vec(),
+            payload: request.as_bytes().to_vec(),
         })
         .await
         .context("send request message")?;
@@ -251,14 +259,25 @@ pub async fn invoke(
             "piece block offset does not match request"
         );
         anyhow::ensure!(
-            data.len() == request_length as usize,
+            data.len() == block_length,
             "piece block has {} bytes, expected {}",
             data.len(),
-            request_length
+            block_length
         );
 
         buf.extend_from_slice(data);
     }
+
+    let actual_piece_hash = t.info.pieces.0[pindex];
+
+    let mut hasher = Sha1::new();
+    hasher.update(&buf);
+    let expected_piece_hash = hasher.finalize();
+
+    anyhow::ensure!(
+        actual_piece_hash == expected_piece_hash,
+        "actual and expected hashes did not match"
+    );
 
     tokio::fs::write(output, buf)
         .await

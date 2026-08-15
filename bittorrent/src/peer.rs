@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 #[repr(C)]
 pub struct Request {
     index: [u8; 4],
@@ -26,10 +28,10 @@ impl Request {
         u32::from_be_bytes(self.length)
     }
 
-    pub fn as_bytes_mut<'a>(&'a mut self) -> &'a mut [u8] {
+    pub fn as_bytes<'a>(&'a self) -> &'a [u8] {
         unsafe {
-            std::slice::from_raw_parts_mut(
-                self as *mut Self as *mut u8,
+            std::slice::from_raw_parts(
+                self as *const Self as *const u8,
                 std::mem::size_of::<Self>(),
             )
         }
