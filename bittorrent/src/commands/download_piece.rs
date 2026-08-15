@@ -1,10 +1,10 @@
 use crate::{commands::handshake::Handshake, torrent::Torrent, tracker::TrackerResponse};
 use anyhow::Context;
-use bytes::{Buf, BytesMut};
-use futures_util::stream::StreamExt;
+use bytes::{Buf, BufMut, BytesMut};
+use futures_util::{SinkExt, stream::StreamExt};
 use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_util::codec::Decoder;
+use tokio_util::codec::{Decoder, Encoder};
 
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
@@ -34,18 +34,74 @@ impl Decoder for MessageFramer {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < 4 {
-            // Not enough data to read length marker.
-            return Ok(None);
+        loop {
+            if src.len() < 4 {
+                // Not enough data to read length marker.
+                return Ok(None);
+            }
+
+            // Read length marker.
+            let mut length_bytes = [0u8; 4];
+            length_bytes.copy_from_slice(&src[..4]);
+            let length = u32::from_be_bytes(length_bytes) as usize;
+
+            // Check that the length is not too large to avoid a denial of
+            // service attack where the server runs out of memory.
+            if length > MAX {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("Frame of length {} is too large.", length),
+                ));
+            }
+
+            if src.len() < 4 + length {
+                // The full string has not yet arrived.
+                src.reserve(4 + length - src.len());
+                return Ok(None);
+            }
+
+            // A zero-length frame is a valid BitTorrent keep-alive message.
+            if length == 0 {
+                src.advance(4);
+                continue;
+            }
+
+            // Use advance to modify src such that it no longer contains
+            // this frame.
+            let tag = match src[4] {
+                0 => MessageTag::Choke,
+                1 => MessageTag::Unchoke,
+                2 => MessageTag::Interested,
+                3 => MessageTag::NotInterested,
+                4 => MessageTag::Have,
+                5 => MessageTag::Bitfield,
+                6 => MessageTag::Request,
+                7 => MessageTag::Piece,
+                8 => MessageTag::Cancel,
+                tag => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("invalid message tag: {}", tag),
+                    ));
+                }
+            };
+
+            let data = src[5..4 + length].to_vec();
+            src.advance(4 + length);
+
+            return Ok(Some(Message { tag, payload: data }));
         }
+    }
+}
 
-        // Read length marker.
-        let mut length_bytes = [0u8; 4];
-        length_bytes.copy_from_slice(&src[..4]);
-        let length = u32::from_be_bytes(length_bytes) as usize;
+impl Encoder<Message> for MessageFramer {
+    type Error = std::io::Error;
 
-        // Check that the length is not too large to avoid a denial of
-        // service attack where the server runs out of memory.
+    fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        // Don't send a string if it is longer than the other end will
+        // accept.
+        let length = 1 /* Message tag */ + item.payload.len() /* length of payload */;
+
         if length > MAX {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -53,42 +109,18 @@ impl Decoder for MessageFramer {
             ));
         }
 
-        if src.len() < 4 + length {
-            // The full string has not yet arrived.
-            //
-            // We reserve more space in the buffer. This is not strictly
-            // necessary, but is a good idea performance-wise.
-            src.reserve(4 + length - src.len());
+        // Convert the length into a byte array.
+        // The cast to u32 cannot overflow due to the length check above.
+        let len_slice = u32::to_be_bytes(length as u32);
 
-            // We inform the Framed that we need more bytes to form the next
-            // frame.
-            return Ok(None);
-        }
+        // Reserve space in the buffer.
+        dst.reserve(4 + 1 + item.payload.len());
 
-        // Use advance to modify src such that it no longer contains
-        // this frame.
-        let tag = match src[4] {
-            0 => MessageTag::Choke,
-            1 => MessageTag::Unchoke,
-            2 => MessageTag::Interested,
-            3 => MessageTag::NotInterested,
-            4 => MessageTag::Have,
-            5 => MessageTag::Bitfield,
-            6 => MessageTag::Request,
-            7 => MessageTag::Piece,
-            8 => MessageTag::Cancel,
-            tag => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("invalid message tag: {}", tag),
-                ));
-            }
-        };
-
-        let data = src[5..4 + length].to_vec();
-        src.advance(4 + length);
-
-        Ok(Some(Message { tag, payload: data }))
+        // Write the length, tag and payload to the buffer.
+        dst.extend_from_slice(&len_slice);
+        dst.put_u8(item.tag as u8);
+        dst.extend_from_slice(&item.payload);
+        Ok(())
     }
 }
 
@@ -138,5 +170,21 @@ pub async fn invoke(
     anyhow::ensure!(bitfield.tag == MessageTag::Bitfield);
 
     println!("bitfield payload: {}", hex::encode(bitfield.payload));
+
+    peer.send(Message {
+        tag: MessageTag::Interested,
+        payload: Vec::new(),
+    })
+    .await
+    .context("send interested message")?;
+
+    let unchoke = peer
+        .next()
+        .await
+        .context("second message is the unchoke message")?
+        .expect("failed to get the unchoke message");
+
+    anyhow::ensure!(unchoke.tag == MessageTag::Unchoke);
+
     Ok(())
 }
