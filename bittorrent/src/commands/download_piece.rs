@@ -1,10 +1,14 @@
-use crate::{commands::handshake::Handshake, torrent::Torrent, tracker::TrackerResponse};
+use crate::{
+    commands::handshake::Handshake, peer::Request, torrent::Torrent, tracker::TrackerResponse,
+};
 use anyhow::Context;
 use bytes::{Buf, BufMut, BytesMut};
 use futures_util::{SinkExt, stream::StreamExt};
 use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::codec::{Decoder, Encoder};
+
+const BLOCK_MAX: usize = 1 << 14;
 
 #[repr(u8)]
 #[derive(Debug, PartialEq)]
@@ -98,7 +102,7 @@ impl Encoder<Message> for MessageFramer {
     type Error = std::io::Error;
 
     fn encode(&mut self, item: Message, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        // Don't send a string if it is longer than the other end will
+        // Don't send a Message if it is longer than the other end will
         // accept.
         let length = 1 /* Message tag */ + item.payload.len() /* length of payload */;
 
@@ -125,9 +129,9 @@ impl Encoder<Message> for MessageFramer {
 }
 
 pub async fn invoke(
-    _output: impl AsRef<Path>,
+    output: impl AsRef<Path>,
     torrent: impl AsRef<Path>,
-    _pindex: usize,
+    pindex: usize,
 ) -> anyhow::Result<()> {
     let t = Torrent::new(torrent).context("parse torrent file")?;
     let info_hash = t.info_hash().context("torrent info hash")?;
@@ -157,19 +161,19 @@ pub async fn invoke(
     anyhow::ensure!(handshake.bittorrent == *b"BitTorrent protocol");
     anyhow::ensure!(handshake.length == 19);
 
-    println!("Peer ID: {}", hex::encode(handshake.peer_id));
-
     let mut peer = tokio_util::codec::Framed::new(peer, MessageFramer);
 
     let bitfield = peer
         .next()
         .await
-        .context("first message is the bitfield message")?
-        .expect("failed to get the bitfield message");
+        .context("peer closed the connection before sending a message")?
+        .context("failed to decode the peer message")?;
 
-    anyhow::ensure!(bitfield.tag == MessageTag::Bitfield);
-
-    println!("bitfield payload: {}", hex::encode(bitfield.payload));
+    anyhow::ensure!(
+        bitfield.tag == MessageTag::Bitfield,
+        "expected a bitfield message, received {:?}",
+        bitfield.tag
+    );
 
     peer.send(Message {
         tag: MessageTag::Interested,
@@ -181,10 +185,83 @@ pub async fn invoke(
     let unchoke = peer
         .next()
         .await
-        .context("second message is the unchoke message")?
-        .expect("failed to get the unchoke message");
+        .context("peer closed the connection before sending an unchoke message")?
+        .context("failed to decode the peer response after interested")?;
 
-    anyhow::ensure!(unchoke.tag == MessageTag::Unchoke);
+    anyhow::ensure!(
+        unchoke.tag == MessageTag::Unchoke,
+        "expected an unchoke message, received {:?}",
+        unchoke.tag
+    );
+    anyhow::ensure!(unchoke.payload.is_empty());
 
+    anyhow::ensure!(
+        pindex < t.info.pieces.0.len(),
+        "piece index is out of range"
+    );
+    let piece_start = pindex
+        .checked_mul(t.info.plength)
+        .context("piece offset overflow")?;
+    let piece_length = t
+        .length()
+        .checked_sub(piece_start)
+        .context("piece starts beyond torrent length")?
+        .min(t.info.plength);
+    let nblocks = piece_length.div_ceil(BLOCK_MAX);
+
+    let mut buf = Vec::with_capacity(piece_length);
+    for block in 0..nblocks {
+        let begin = (block * BLOCK_MAX) as u32;
+        let request_length = (piece_length - block * BLOCK_MAX).min(BLOCK_MAX) as u32;
+
+        let mut request = Request::new(pindex as u32, begin, request_length);
+
+        peer.send(Message {
+            tag: MessageTag::Request,
+            payload: request.as_bytes_mut().to_vec(),
+        })
+        .await
+        .context("send request message")?;
+
+        let piece = peer
+            .next()
+            .await
+            .context("peer closed the connection before sending an piece message")?
+            .context("failed to decode the piece response after interested")?;
+
+        anyhow::ensure!(
+            piece.tag == MessageTag::Piece,
+            "expected a piece message, received {:?}",
+            piece.tag
+        );
+
+        anyhow::ensure!(
+            piece.payload.len() >= 8,
+            "piece message payload is too short: {} bytes",
+            piece.payload.len()
+        );
+
+        let index = u32::from_be_bytes(piece.payload[..4].try_into().unwrap());
+        let response_begin = u32::from_be_bytes(piece.payload[4..8].try_into().unwrap());
+        let data = &piece.payload[8..];
+
+        anyhow::ensure!(index == pindex as u32, "piece index does not match request");
+        anyhow::ensure!(
+            response_begin == begin,
+            "piece block offset does not match request"
+        );
+        anyhow::ensure!(
+            data.len() == request_length as usize,
+            "piece block has {} bytes, expected {}",
+            data.len(),
+            request_length
+        );
+
+        buf.extend_from_slice(data);
+    }
+
+    tokio::fs::write(output, buf)
+        .await
+        .context("write the content of piece to file")?;
     Ok(())
 }

@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use crate::commands::decode::decode_bencoded_value;
 
 mod commands;
+mod peer;
 mod torrent;
 mod tracker;
 
