@@ -1,9 +1,7 @@
-use std::path::Path;
-
-use anyhow::Context;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
 use crate::torrent::Torrent;
+use anyhow::Context;
+use std::path::Path;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[repr(C)]
 pub struct Handshake {
@@ -68,5 +66,6 @@ pub async fn invoke(torrent: impl AsRef<Path>, peer: String) -> anyhow::Result<(
     anyhow::ensure!(handshake.length == 19);
 
     println!("Peer ID: {}", hex::encode(handshake.peer_id));
+
     Ok(())
 }
