@@ -8,7 +8,7 @@ use crate::{
 };
 
 pub async fn invoke(torrent: impl AsRef<Path>) -> anyhow::Result<()> {
-    let t = Torrent::new(torrent).context("parse torrent file")?;
+    let t = Torrent::read(torrent).await.context("parse torrent file")?;
 
     let trequest = TrackerRequest::new(String::from("00112233445566778899"), t.length());
     let trequest =

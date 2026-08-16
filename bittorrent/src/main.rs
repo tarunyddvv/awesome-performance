@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
-use crate::commands::decode::decode_bencoded_value;
+use crate::{commands::decode::decode_bencoded_value, torrent::Torrent};
 
 mod commands;
+mod download;
 mod peer;
 mod torrent;
 mod tracker;
@@ -38,6 +40,11 @@ enum Commands {
         torrent: PathBuf,
         pindex: usize,
     },
+    Download {
+        #[clap(short = 'o')]
+        output: PathBuf,
+        torrent: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -49,7 +56,7 @@ async fn main() -> anyhow::Result<()> {
             let value = decode_bencoded_value(&encoded_value);
             println!("{}", value.0)
         }
-        Some(Commands::Info { torrent }) => commands::info::invoke(torrent)?,
+        Some(Commands::Info { torrent }) => commands::info::invoke(torrent).await?,
         Some(Commands::Peers { torrent }) => commands::peers::invoke(torrent).await?,
         Some(Commands::Handshake { torrent, peer }) => {
             commands::handshake::invoke(torrent, peer).await?
@@ -59,6 +66,18 @@ async fn main() -> anyhow::Result<()> {
             torrent,
             pindex,
         }) => commands::download_piece::invoke(output, torrent, pindex).await?,
+        Some(Commands::Download { output, torrent }) => {
+            let torrent = Torrent::read(torrent)
+                .await
+                .context("read the torrent file")?;
+            torrent.print_tree();
+            let files = torrent.download_all().await?;
+            tokio::fs::write(
+                output,
+                files.into_iter().next().expect("always one file").bytes(),
+            )
+            .await?;
+        }
         None => {}
     }
 

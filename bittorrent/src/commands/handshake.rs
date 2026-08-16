@@ -43,7 +43,7 @@ impl Handshake {
 }
 
 pub async fn invoke(torrent: impl AsRef<Path>, peer: String) -> anyhow::Result<()> {
-    let t = Torrent::new(torrent).context("parse torrent file")?;
+    let t = Torrent::read(torrent).await.context("parse torrent file")?;
     let info_hash = t.info_hash().context("torrent info hash")?;
 
     let mut handshake = Handshake::new(info_hash, *b"00112233445566778899");

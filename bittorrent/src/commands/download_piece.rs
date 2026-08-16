@@ -134,7 +134,7 @@ pub async fn invoke(
     torrent: impl AsRef<Path>,
     pindex: usize,
 ) -> anyhow::Result<()> {
-    let t = Torrent::new(torrent).context("parse torrent file")?;
+    let t = Torrent::read(torrent).await.context("parse torrent file")?;
     let info_hash = t.info_hash().context("torrent info hash")?;
 
     let peer = TrackerResponse::fetch(&t)
@@ -276,7 +276,9 @@ pub async fn invoke(
 
     anyhow::ensure!(
         actual_piece_hash == expected_piece_hash,
-        "actual and expected hashes did not match"
+        "actual and expected hashes did not match ( actual: '{}', expected: '{}'",
+        hex::encode(actual_piece_hash),
+        hex::encode(expected_piece_hash)
     );
 
     tokio::fs::write(output, buf)

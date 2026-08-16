@@ -4,8 +4,8 @@ use anyhow::Context;
 
 use crate::torrent::Torrent;
 
-pub fn invoke(torrent: impl AsRef<Path>) -> anyhow::Result<()> {
-    let t = Torrent::new(torrent).context("parse torrent file")?;
+pub async fn invoke(torrent: impl AsRef<Path>) -> anyhow::Result<()> {
+    let t = Torrent::read(torrent).await.context("parse torrent file")?;
 
     println!("Tracker URL: {}", t.announce);
     println!("Length: {}", t.length());

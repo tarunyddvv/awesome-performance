@@ -1,11 +1,14 @@
 #![allow(unused)]
-use std::path::Path;
+use std::path::{MAIN_SEPARATOR_STR, Path};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 
-use crate::torrent::hashes::Pieces;
+use crate::{
+    download::{self, Downloaded},
+    torrent::hashes::Pieces,
+};
 
 /// Metainfo files (also known as .torrent files) are bencoded dictionaries with the following keys:
 #[derive(Debug, Deserialize, Serialize)]
@@ -17,11 +20,27 @@ pub struct Torrent {
 }
 
 impl Torrent {
-    pub fn new(file: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let f = std::fs::read(file).context("read the torrent file")?;
+    pub async fn read(file: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let f = tokio::fs::read(file)
+            .await
+            .context("read the torrent file")?;
         let t: Torrent = serde_bencode::from_bytes(&f).context("parse torrent file")?;
 
         Ok(t)
+    }
+
+    pub fn print_tree(&self) {
+        match self.info.keys {
+            Keys::SingleFile { .. } => {
+                println!("{}", self.info.name)
+            }
+            Keys::MultiFile { ref files } => {
+                println!(
+                    "{:#?}",
+                    files.iter().map(|f| f.path.join(MAIN_SEPARATOR_STR))
+                );
+            }
+        }
     }
 
     pub fn info_hash(&self) -> anyhow::Result<[u8; 20]> {
@@ -39,6 +58,10 @@ impl Torrent {
             Keys::SingleFile { length } => length,
             Keys::MultiFile { ref files } => files.iter().map(|f| f.length).sum(),
         }
+    }
+
+    pub async fn download_all(self) -> anyhow::Result<Downloaded> {
+        download::all(self).await
     }
 }
 
