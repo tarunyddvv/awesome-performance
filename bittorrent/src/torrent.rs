@@ -1,9 +1,8 @@
 #![allow(unused)]
-use std::path::{MAIN_SEPARATOR_STR, Path};
-
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
+use std::path::{MAIN_SEPARATOR_STR, Path};
 
 use crate::{
     download::{self, Downloaded},

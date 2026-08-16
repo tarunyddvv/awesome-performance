@@ -5,33 +5,22 @@ use crate::{torrent::Torrent, tracker::peers::Peers};
 
 #[derive(Debug, Serialize)]
 pub struct TrackerRequest {
-    /// the info hash of the torrent
-    /// 20 bytes long, will need to be URL encoded
-    /// Note: this is NOT the hexadecimal representation, which is 40 bytes long
-    // info_hash: [u8; 20],
-
     /// a unique identifier for your client
-    /// A string of length 20 that you get to pick.
     peer_id: String,
 
     ///  the port your client is listening on
-    // You can set this to 6881, you will not have to support this functionality during this challenge.
     port: u16,
 
     /// the total amount uploaded so far
-    /// Since your client hasn't uploaded anything yet, you can set this to 0.
     uploaded: usize,
 
     /// the total amount downloaded so far
-    /// Since your client hasn't downloaded anything yet, you can set this to 0.
     downloaded: usize,
 
     /// the number of bytes left to download
-    /// Since you client hasn't downloaded anything yet, this'll be the total length of the file (you've extracted this value from the torrent file in previous stages)
     left: usize,
 
     /// whether the peer list should use the compact representation
-    /// For the purposes of this challenge, set this to 1.
     compact: u8,
 }
 
@@ -51,7 +40,6 @@ impl TrackerRequest {
 #[derive(Debug, Deserialize)]
 pub struct TrackerResponse {
     /// An integer, indicating how often your client should make a request to the tracker.
-    /// You can ignore this value for the purposes of this challenge.
     // pub interval: u64,
 
     /// A string, which contains list of peers that your client can connect to.

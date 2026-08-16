@@ -26,11 +26,11 @@ pub enum MessageTag {
 }
 
 pub struct Message {
-    tag: MessageTag,
-    payload: Vec<u8>,
+    pub tag: MessageTag,
+    pub payload: Vec<u8>,
 }
 
-struct MessageFramer;
+pub struct MessageFramer;
 
 const MAX: usize = 1 << 16;
 
