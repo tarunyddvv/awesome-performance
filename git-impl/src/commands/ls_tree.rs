@@ -8,7 +8,7 @@ use anyhow::Context;
 use crate::objects::{Kind, Object};
 
 // cat-file: for blob is used for reading blobs
-pub fn invoke(name_only: bool, tree_hash: String) -> anyhow::Result<()> {
+pub fn invoke(name_only: bool, tree_hash: &String) -> anyhow::Result<()> {
     // INFO: tree <size>\0
     // INFO: <mode> <name>\0<20_byte_sha>
     // INFO: <mode> <name>\0<20_byte_sha>

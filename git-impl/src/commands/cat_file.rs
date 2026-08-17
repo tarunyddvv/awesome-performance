@@ -1,9 +1,12 @@
 use anyhow::Context;
 
-use crate::objects::{Kind, Object};
+use crate::{
+    commands,
+    objects::{Kind, Object},
+};
 
 // cat-file: for blob is used for reading blobs
-pub fn invoke(pretty_print: bool, blob_hash: String) -> anyhow::Result<()> {
+pub fn invoke(pretty_print: bool, blob_hash: &String) -> anyhow::Result<()> {
     anyhow::ensure!(pretty_print, "-p (pretty print) subcommand is mandatory");
 
     let mut object = Object::read(&blob_hash).context("parse out the blob object hash")?;
@@ -19,6 +22,7 @@ pub fn invoke(pretty_print: bool, blob_hash: String) -> anyhow::Result<()> {
                 object.expected_size
             );
         }
+        Kind::Tree => commands::ls_tree::invoke(!pretty_print, &blob_hash)?,
         _ => anyhow::bail!("we do not yet know how to print '{}'", object.kind),
     }
 

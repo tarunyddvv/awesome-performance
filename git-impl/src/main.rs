@@ -40,12 +40,12 @@ fn main() -> anyhow::Result<()> {
         Some(Commands::CatFile {
             pretty_print,
             blob_hash,
-        }) => commands::cat_file::invoke(pretty_print, blob_hash)?,
+        }) => commands::cat_file::invoke(pretty_print, &blob_hash)?,
         Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, file)?,
         Some(Commands::LsTree {
             name_only,
             tree_hash,
-        }) => commands::ls_tree::invoke(name_only, tree_hash)?,
+        }) => commands::ls_tree::invoke(name_only, &tree_hash)?,
         None => {}
     }
 
