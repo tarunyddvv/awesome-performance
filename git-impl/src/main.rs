@@ -1,5 +1,6 @@
-use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
+use clap::{Parser, Subcommand};
 mod commands;
 
 #[derive(Parser)]
@@ -16,6 +17,12 @@ enum Commands {
         pretty_print: bool,
         object_hash: String,
     },
+    HashObject {
+        #[clap(short = 'w')]
+        write: bool,
+
+        file: PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,6 +33,7 @@ fn main() -> anyhow::Result<()> {
             pretty_print,
             object_hash,
         }) => commands::cat_file::invoke(pretty_print, object_hash)?,
+        Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, file)?,
         None => {}
     }
 

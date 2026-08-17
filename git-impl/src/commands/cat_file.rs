@@ -43,8 +43,7 @@ pub fn invoke(pretty_print: bool, object_hash: String) -> anyhow::Result<()> {
 
     // INFO: blob <size>\0<content>
     let header = CStr::from_bytes_with_nul(&buf)
-        .context("validating a nul terminated header from .git/objects")
-        .context("failed to get the CStr")?
+        .context("validating a nul terminated header from .git/objects")?
         .to_str()
         .context("header is not a valid UTF-8 encoded string")?;
 
@@ -63,6 +62,7 @@ pub fn invoke(pretty_print: bool, object_hash: String) -> anyhow::Result<()> {
         anyhow::bail!("not a valid header from .git/objects");
     };
 
+    // NOTE: this won't error if the decompressed file is too long, but will least not spam stdout and be vulnerable to a zipbomb.
     let mut z = z.take(size as u64);
 
     match kind {
@@ -72,7 +72,7 @@ pub fn invoke(pretty_print: bool, object_hash: String) -> anyhow::Result<()> {
                 .context("copy the content the header from z reader to stdout stream")?;
             anyhow::ensure!(
                 n == size as u64,
-                "invalid content size: (actual: '{n}', expected: '{size}'"
+                "invalid content size: (actual: '{n}', expected: '{size}')"
             );
         }
         _ => anyhow::bail!("we do not yet know how to print '{kind}'"),
