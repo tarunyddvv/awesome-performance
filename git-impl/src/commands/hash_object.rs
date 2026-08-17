@@ -9,7 +9,6 @@ pub fn invoke(write: bool, file: PathBuf) -> anyhow::Result<()> {
         let stat =
             std::fs::metadata(&file).with_context(|| format!("file stat: {}", file.display()))?;
 
-        // zlib compression of the header and file content
         let z = ZlibEncoder::new(writer, Compression::default());
 
         let mut writer = HashWriter {
@@ -28,7 +27,21 @@ pub fn invoke(write: bool, file: PathBuf) -> anyhow::Result<()> {
 
     let hash = if write {
         let tmp = "temporary";
-        write_blob(std::fs::File::create(tmp)?, file)?
+        let hash = write_blob(
+            std::fs::File::create(tmp).context("write blob object to temporary file")?,
+            file,
+        )
+        .context("write out blob object")?;
+
+        std::fs::create_dir_all(format!("../.git/objects/{}", &hash[..2]))
+            .context("create the hash dir")?;
+        std::fs::copy(
+            tmp,
+            format!("../.git/objects/{}/{}", &hash[..2], &hash[2..]),
+        )
+        .context("copy out the content of temp file to the actual path")?;
+
+        hash
     } else {
         write_blob(std::io::sink(), file)?
     };

@@ -1,7 +1,8 @@
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
 mod commands;
+mod objects;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -15,13 +16,20 @@ enum Commands {
     CatFile {
         #[clap(short = 'p')]
         pretty_print: bool,
-        object_hash: String,
+
+        blob_hash: String,
     },
     HashObject {
         #[clap(short = 'w')]
         write: bool,
 
         file: PathBuf,
+    },
+    LsTree {
+        #[clap(long = "name-only")]
+        name_only: bool,
+
+        tree_hash: String,
     },
 }
 
@@ -31,9 +39,13 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Some(Commands::CatFile {
             pretty_print,
-            object_hash,
-        }) => commands::cat_file::invoke(pretty_print, object_hash)?,
+            blob_hash,
+        }) => commands::cat_file::invoke(pretty_print, blob_hash)?,
         Some(Commands::HashObject { write, file }) => commands::hash_object::invoke(write, file)?,
+        Some(Commands::LsTree {
+            name_only,
+            tree_hash,
+        }) => commands::ls_tree::invoke(name_only, tree_hash)?,
         None => {}
     }
 
