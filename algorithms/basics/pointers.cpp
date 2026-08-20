@@ -1,5 +1,3 @@
-#include <cstdio>
-#include <cstdlib>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,12 +57,18 @@ int main()
     cout<<sizeof(p7)<<endl;
     cout<<sizeof(p8)<<endl;
 
+    // INFO: this will be a dynamic object because the ptr is pointing to heap
     struct Rectangle *r;
+
+    // INFO: or inside C++ we can also do: Rectangle *r; no struct keyword is needed
 
     r = (struct Rectangle *)malloc(sizeof(struct Rectangle));
 
+    // INFO: for normal variable use ( . )operator and for pointers use ( -> ) operator.
     r->length = 10;
-    r->breadth = 20;
+
+    // INFO: or (*r).breadth
+    (*r).breadth = 20;
 
     printf("length: %d\n", r->length);
     printf("breadth: %d\n", r->breadth);
