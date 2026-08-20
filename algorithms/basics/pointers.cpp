@@ -6,6 +6,11 @@
 
 using namespace std;
 
+struct Rectangle {
+    int length;
+    int breadth;
+};
+
 int main()
 {
     int a=10;
@@ -39,5 +44,30 @@ int main()
     delete []p2;
     // INFO: in C
     // INFO: free(p2) will be used
+
+    int *p3;
+    char *p4;
+    float *p5;
+    double *p6;
+    int *p7;
+    struct Rectangle *p8;
+
+    cout<<sizeof(p3)<<endl;
+    cout<<sizeof(p4)<<endl;
+    cout<<sizeof(p5)<<endl;
+    cout<<sizeof(p6)<<endl;
+    cout<<sizeof(p7)<<endl;
+    cout<<sizeof(p8)<<endl;
+
+    struct Rectangle *r;
+
+    r = (struct Rectangle *)malloc(sizeof(struct Rectangle));
+
+    r->length = 10;
+    r->breadth = 20;
+
+    printf("length: %d\n", r->length);
+    printf("breadth: %d\n", r->breadth);
+
     return 0;
 }
