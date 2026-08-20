@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("read the torrent file")?;
             torrent.print_tree();
+
             let files = torrent.download_all().await?;
             tokio::fs::write(
                 output,
