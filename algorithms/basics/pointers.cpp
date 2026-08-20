@@ -55,7 +55,6 @@ int main()
     cout<<sizeof(p5)<<endl;
     cout<<sizeof(p6)<<endl;
     cout<<sizeof(p7)<<endl;
-    cout<<sizeof(p8)<<endl;
 
     // INFO: this will be a dynamic object because the ptr is pointing to heap
     struct Rectangle *r;
