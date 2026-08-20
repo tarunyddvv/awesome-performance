@@ -14,6 +14,7 @@ void swap(int &x, int &y) {
 }
 
 // INFO: Arrays are always pass by address; so here we have n as pass by value and A as address.
+// INFO: inside the structure arrays are supported as call by value; bcoz they have to.
  void print(int A[], int n) {
      for(int i=0; i < n; i++) {
          cout<<A[i]<<endl;
@@ -21,8 +22,7 @@ void swap(int &x, int &y) {
  }
 
  int *create(int n) {
-     int *p = (int *)malloc(n);
-     return p;
+     return (int *)malloc(n * sizeof(int));
  }
 
 int main()
