@@ -1,1 +1,7 @@
 target
+
+# VS Code workspace settings
+.vscode/
+
+# Debugger-generated symbol bundles
+*.dSYM/

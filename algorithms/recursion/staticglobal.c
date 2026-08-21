@@ -5,6 +5,7 @@ int fun(int x) {
     static int n = 0;
     if (x > 0) {
         n++;
+        // INFO: this is not tail recursion
         return fun(x - 1) + n;
     }
     return 0;
