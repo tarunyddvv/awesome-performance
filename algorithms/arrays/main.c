@@ -67,6 +67,21 @@ int linearSearch(struct Array *ar, int elem) {
     return -1;
 }
 
+int binarySearch(struct Array *ar, int elem) {
+    int l=0, h=ar->length;
+    while (l < h) {
+        int mid=(l+h)/2;
+        if (ar->a[mid] == elem) {
+            return mid;
+        } else if (ar->a[mid] < elem) {
+            l = mid + 1;
+        } else {
+            h = mid - 1;
+        }
+    }
+    return -1;
+}
+
 int main()
 {
     struct Array ar;
@@ -88,8 +103,9 @@ int main()
     
     printf("after deletion\n");
 
-    printf("10 is at index: %d\n", linearSearch(&ar, 10));
-    printf("50 is at index: %d\n", linearSearch(&ar, 50));
+    // printf("10 is at index: %d\n", linearSearch(&ar, 10));
+    // printf("50 is at index: %d\n", linearSearch(&ar, 50));
+    printf("50 is at index: %d\n", binarySearch(&ar, 50));
     print(&ar);
 
     return 0;
