@@ -40,11 +40,31 @@ void insert(struct Array *ar, int index, int elem) {
 void delete(struct Array *ar, int index) {
     // check if index > 0 & index < ar.length - 1
     if (index >= 0 && index < ar->length) {
-        for (int i=index;i<ar->length;i++) {
+        for (int i=index;i<ar->length-1;i++) {
             ar->a[i] = ar->a[i+1];
         }
         ar->length--;
     }
+}
+
+void swap(int *x, int *y) {
+    int temp = *x;
+    *x = *y;
+    *y = temp;
+}
+
+int linearSearch(struct Array *ar, int elem) {
+    for (int i=0;i<ar->length;i++) {
+        if (ar->a[i] == elem) {
+            // INFO: linear search optimization techniques - 
+            // INFO: transposition
+            // swap(&ar->a[i], &ar->a[i-1]);
+            // INFO: move to head
+            swap(&ar->a[i], &ar->a[0]);
+            return i;
+        }
+    }
+    return -1;
 }
 
 int main()
@@ -59,6 +79,7 @@ int main()
     append(&ar, 50);
 
     insert(&ar, 2, 45);
+
     printf("before deletion\n");
     print(&ar);
     
@@ -66,6 +87,9 @@ int main()
     
     
     printf("after deletion\n");
+
+    printf("10 is at index: %d\n", linearSearch(&ar, 10));
+    printf("50 is at index: %d\n", linearSearch(&ar, 50));
     print(&ar);
 
     return 0;
